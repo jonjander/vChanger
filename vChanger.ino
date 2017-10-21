@@ -16,8 +16,8 @@ Kan skriva till I2C direkt från interupt istället för med biblotektet?
 
 #include <WaveHC.h>
 #include <WaveUtil.h>
-//#include <Wire.h>
-//#include <Adafruit_MCP4725.h>
+#include <Wire.h>
+#include <Adafruit_MCP4725.h>
 
 //Adafruit_MCP4725 dac;
 
@@ -51,12 +51,14 @@ uint8_t       oldsum = 0;
 unsigned long newsum = 0L;
 
 //Adafruit_MCP4725 dac;
+Adafruit_MCP4725 dac; // constructor
 
 #define SDA_PIN 4
 #define SDA_PORT PORTC
 #define SCL_PIN 5 
 #define SCL_PORT PORTC
 #include <SoftI2CMaster.h>
+
 //#define I2C_TIMEOUT 500
 //#define I2C_NOINTERRUPT 1 //0 or 1 vem fan vet?
 
@@ -144,7 +146,7 @@ void setup(void) {
   // For MCP4725A0 the address is 0x60 or 0x61
   // For MCP4725A2 the address is 0x64 or 0x65
   TWBR = 12; // 400 khz
-  //dac.begin(0x60);
+  dac.begin(0x60);
   //Serial.println("Generating a triangle wave");
 
   pinMode(2, OUTPUT);    // Chip select
@@ -163,7 +165,9 @@ void setup(void) {
 }
 
 void loop(void) {
-    uint16_t mic =((nlo & 0b11111111)| nhi << 8);
+    //uint16_t mic =(nhi << 8 | nlo); //Set register to mic
+
+    uint16_t mic =(nhi | nlo); //Set register to mic //already shifted
     
     //for(jx=0;jx<19;jx++)
     //{
@@ -177,15 +181,15 @@ void loop(void) {
     if (flag == 1) {
       //int volt = map((int)((buffer2[in] << 8) | buffer1[in]),0,744,0,4094);
       //int volt = map(mic,0,6000,0,4094);
-      //dac.setVoltage(mic, false);
+      dac.setVoltage(mic, false);
       //Serial.println(volt);
       //Serial.println(mic);
       
-      i2c_start(0xC0 | I2C_WRITE);
-      i2c_write(0x40);
-      i2c_write(mic / 16);
-      i2c_write((mic % 16) << 4);
-      i2c_stop();
+      //i2c_start(0xC0 | I2C_WRITE);
+      //i2c_write(0x40);
+      //i2c_write(mic / 16);
+      //i2c_write((mic % 16) << 4);
+      //i2c_stop();
       
       flag = 0;
     }
@@ -248,7 +252,6 @@ void startPitchShift() {
 }
 
 ISR(ADC_vect, ISR_BLOCK) { // ADC conversion complete
-  if (flag != 1) { //Wait for I2C output This is new this is test
     // Save old sample from 'in' position to xfade buffer:
     buffer1[nSamples + xf] = buffer1[in];
     buffer2[nSamples + xf] = buffer2[in];
@@ -257,8 +260,12 @@ ISR(ADC_vect, ISR_BLOCK) { // ADC conversion complete
     // Store new value in sample buffers:
     buffer1[in] = ADCL; // MUST read ADCL first!
     buffer2[in] = ADCH;
+
+    //Debug
+    //nhi = buffer1[in];
+    //nlo = buffer2[in];
   
-    newsum += abs((((int)buffer2[in] << 8) | buffer1[in]) - 512);
+    //newsum += abs((((int)buffer2[in] << 8) | buffer1[in]) - 512);
     //Serial.println((buffer2[in] << 8) | buffer1[in]);
     
     //Serial.println(volt);
@@ -269,11 +276,10 @@ ISR(ADC_vect, ISR_BLOCK) { // ADC conversion complete
       //oldsum = (uint8_t)((newsum / nSamples) >> 1); // 0-255
       //newsum = 0L;
     }
-  }
+  
 }
 
 ISR(TIMER2_OVF_vect) { // Playback interrupt
-  if (flag != 1) { //Wait for I2C output This is new this is test
     uint16_t s;
     uint8_t  w, inv, hi, lo, bit;
     int      o2, i2, pos;
@@ -309,9 +315,14 @@ ISR(TIMER2_OVF_vect) { // Playback interrupt
       hi = (buffer2[out] << 2) | (buffer1[out] >> 6); // Expand 10-bit data
       lo = (buffer1[out] << 2) |  buffer2[out];       // to 12 bits
     }
-    flag = 1;
+    
+
+    //Bypass vchange debug
     nhi = hi;
     nlo = lo;
+    //nhi = buffer1[out] << 8;
+    //nlo = buffer2[out];
+    flag = 1;
   
     //dac.setVoltage((hi | lo), false);
     //sei();
@@ -323,6 +334,5 @@ ISR(TIMER2_OVF_vect) { // Playback interrupt
     //Serial.println(hi);
     //Serial.println(lo);
     if(++out >= nSamples) out = 0;
-  }
 }
 
