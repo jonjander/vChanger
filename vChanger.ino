@@ -12,14 +12,18 @@ Kan skriva till I2C direkt från interupt istället för med biblotektet?
 //http://playground.arduino.cc/Main/SoftwareI2CLibrary
 //https://www.arduino.cc/en/Reference/PortManipulation
 
+uint16_t mic = 0;
+uint16_t micFilter = 0;
 
+
+uint16_t amax,amin,bmax,bmin;
 
 #include <WaveHC.h>
 #include <WaveUtil.h>
 #include <Wire.h>
 #include <Adafruit_MCP4725.h>
 
-//Adafruit_MCP4725 dac;
+Adafruit_MCP4725 dac;
 
 #define ADC_CHANNEL 0 // Microphone on Analog pin 0
 uint16_t in = 0, out = 0, xf = 0, nSamples; // Audio sample counters
@@ -35,7 +39,7 @@ int micMax = 0, micMin = 9999;
 #define DAC_LATCH_PORT PORTD
 #define DAC_LATCH      PORTD5
 
-uint16_t nhi, nlo;
+uint8_t nhi, nlo;
 bool flag = 0;
 
 // WaveHC didn't declare it's working buffers private or static,
@@ -50,21 +54,13 @@ extern uint8_t
 uint8_t       oldsum = 0;
 unsigned long newsum = 0L;
 
-//Adafruit_MCP4725 dac;
-Adafruit_MCP4725 dac; // constructor
-
 #define SDA_PIN 4
 #define SDA_PORT PORTC
 #define SCL_PIN 5 
 #define SCL_PORT PORTC
-#include <SoftI2CMaster.h>
 
-//#define I2C_TIMEOUT 500
-//#define I2C_NOINTERRUPT 1 //0 or 1 vem fan vet?
 
-//#define I2C_FASTMODE 1
-//#define I2C_CPUFREQ (F_CPU/8) //??
-
+//Display pins
 int Max7219_pinCLK = 10;
 int Max7219_pinCS = 9;
 int Max7219_pinDIN = 8;
@@ -130,23 +126,25 @@ void Init_MAX7219(void)
 void setup(void) {
   Serial.begin(9600);
 
+  amax = 0;
+  amin = 4000;
+  bmax = 0;
+  bmin = 4000;
+
+  pinMode(12, INPUT); //start btn
+
   pinMode(Max7219_pinCLK,OUTPUT);
   pinMode(Max7219_pinCS,OUTPUT);
   pinMode(Max7219_pinDIN,OUTPUT);
-  Init_MAX7219();
-  if(i2c_init()) { //init i2c system
-    Serial.println("ok!");
-  }else {
-    Serial.println("fuck!");
-  }
-  
+  Init_MAX7219(); //Init display
+
   //Serial.println("Hello!");
   randomSeed(analogRead(A2));
   // For Adafruit MCP4725A1 the address is 0x62 (default) or 0x63 (ADDR pin tied to VCC)
   // For MCP4725A0 the address is 0x60 or 0x61
   // For MCP4725A2 the address is 0x64 or 0x65
   TWBR = 12; // 400 khz
-  dac.begin(0x60);
+  //dac.begin(0x60);
   //Serial.println("Generating a triangle wave");
 
   pinMode(2, OUTPUT);    // Chip select
@@ -165,33 +163,41 @@ void setup(void) {
 }
 
 void loop(void) {
-    //uint16_t mic =(nhi << 8 | nlo); //Set register to mic
-
-    uint16_t mic =(nhi | nlo); //Set register to mic //already shifted
+    mic =(nhi << 8 | nlo); //Set register to mic
+    //uint16_t micORg =(buffer2[in] << 8 | buffer1[in]); //Set register to mic
     
-    //for(jx=0;jx<19;jx++)
-    //{
-    //  delay(1200);
-    //  for(ix=1;ix<9;ix++)
-    //    Write_Max7219(ix,disp1[jx][ix-1]);
-    //    delay(1200);
-    //}
-
-    //int mic2 = nhi | nlo;
     if (flag == 1) {
-      //int volt = map((int)((buffer2[in] << 8) | buffer1[in]),0,744,0,4094);
-      //int volt = map(mic,0,6000,0,4094);
-      dac.setVoltage(mic, false);
-      //Serial.println(volt);
-      //Serial.println(mic);
-      
-      //i2c_start(0xC0 | I2C_WRITE);
-      //i2c_write(0x40);
-      //i2c_write(mic / 16);
-      //i2c_write((mic % 16) << 4);
-      //i2c_stop();
-      
-      flag = 0;
+      if (digitalRead(12))
+      {
+        amax = 0;
+        amin = 4000;
+        bmax = 0;
+        bmin = 4000;
+      }
+      mic = map(mic, (544 - 10), (736 + 10) , 0, 4096 );
+
+      if (1 == 0 ) {
+        Serial.print(mic);
+        Serial.print(" ");
+        Serial.print(amax);
+        Serial.print(" ");
+        Serial.print(amin);
+        Serial.print(" ");
+        Serial.print(bmax);
+        Serial.print(" ");
+        Serial.println(bmin);
+        //Serial.print(" ");
+        //Serial.println(micORg);
+      }
+
+      if (digitalRead(12)) { // fixa så att den inte frågar så ofta. kolla bara ibland och använd en toggle
+        Wire.beginTransmission(0x60);
+        Wire.write(64);                     // cmd to update the DAC
+        Wire.write(mic >> 4);        // the 8 most significant bits...
+        Wire.write((mic & 15) << 4); // the 4 least significant bits...
+        Wire.endTransmission();
+        flag = 0;
+      }
     }
     voltSamples++;
     if (voltSamples < 1024) {
@@ -221,8 +227,13 @@ void startPitchShift() {
   int pitch = analogRead(1);
   //Serial.print("Pitch: ");
   //Serial.println(pitch);
-  
-  nSamples = 256 ;
+
+
+  // Right now the sketch just uses a fixed sound buffer length of
+  // 128 samples.  It may be the case that the buffer length should
+  // vary with pitch for better results...further experimentation
+  // is required here.
+  nSamples = 128 ;
   //nSamples = F_CPU / 3200 / OCR2A; // ???
   //if(nSamples > MAX_SAMPLES)      nSamples = MAX_SAMPLES;
   //else if(nSamples < (XFADE * 2)) nSamples = XFADE * 2;
@@ -252,87 +263,63 @@ void startPitchShift() {
 }
 
 ISR(ADC_vect, ISR_BLOCK) { // ADC conversion complete
-    // Save old sample from 'in' position to xfade buffer:
-    buffer1[nSamples + xf] = buffer1[in];
-    buffer2[nSamples + xf] = buffer2[in];
-    if(++xf >= XFADE) xf = 0;
-  
-    // Store new value in sample buffers:
-    buffer1[in] = ADCL; // MUST read ADCL first!
-    buffer2[in] = ADCH;
+  // Save old sample from 'in' position to xfade buffer:
+  buffer1[nSamples + xf] = buffer1[in];
+  buffer2[nSamples + xf] = buffer2[in];
+  if(++xf >= XFADE) xf = 0;
 
-    //Debug
-    //nhi = buffer1[in];
-    //nlo = buffer2[in];
-  
-    //newsum += abs((((int)buffer2[in] << 8) | buffer1[in]) - 512);
-    //Serial.println((buffer2[in] << 8) | buffer1[in]);
-    
-    //Serial.println(volt);
-    
-    if(++in >= nSamples) {
-      in     = 0;
-      //Temp disable this dosent do anything , changed
-      //oldsum = (uint8_t)((newsum / nSamples) >> 1); // 0-255
-      //newsum = 0L;
-    }
-  
+  // Store new value in sample buffers:
+  buffer1[in] = ADCL; // MUST read ADCL first!
+  buffer2[in] = ADCH;
+  if(++in >= nSamples) in = 0;
 }
 
 ISR(TIMER2_OVF_vect) { // Playback interrupt
-    uint16_t s;
-    uint8_t  w, inv, hi, lo, bit;
-    int      o2, i2, pos;
-  
-    // Cross fade around circular buffer 'seam'.
-    if((o2 = (int)out) == (i2 = (int)in)) {
-      // Sample positions coincide.  Use cross-fade buffer data directly.
-      pos = nSamples + xf;
-      hi = (buffer2[pos] << 2) | (buffer1[pos] >> 6); // Expand 10-bit data
-      lo = (buffer1[pos] << 2) |  buffer2[pos];       // to 12 bits
-    } if((o2 < i2) && (o2 > (i2 - XFADE))) {
-      // Output sample is close to end of input samples.  Cross-fade to
-      // avoid click.  The shift operations here assume that XFADE is 16;
-      // will need adjustment if that changes.
-      w   = in - out;  // Weight of sample (1-n)
-      inv = XFADE - w; // Weight of xfade
-      pos = nSamples + ((inv + xf) % XFADE);
-      s   = ((buffer2[out] << 8) | buffer1[out]) * w +
-            ((buffer2[pos] << 8) | buffer1[pos]) * inv;
-      hi = s >> 10; // Shift 14 bit result
-      lo = s >> 2;  // down to 12 bits
-    } else if (o2 > (i2 + nSamples - XFADE)) {
-      // More cross-fade condition
-      w   = in + nSamples - out;
-      inv = XFADE - w;
-      pos = nSamples + ((inv + xf) % XFADE);
-      s   = ((buffer2[out] << 8) | buffer1[out]) * w +
-            ((buffer2[pos] << 8) | buffer1[pos]) * inv;
-      hi = s >> 10; // Shift 14 bit result
-      lo = s >> 2;  // down to 12 bits
-    } else {
-      // Input and output counters don't coincide -- just use sample directly.
-      hi = (buffer2[out] << 2) | (buffer1[out] >> 6); // Expand 10-bit data
-      lo = (buffer1[out] << 2) |  buffer2[out];       // to 12 bits
-    }
-    
+  uint16_t s;
+  uint8_t  w, inv, hi, lo, bit;
+  int      o2, i2, pos;
 
-    //Bypass vchange debug
-    nhi = hi;
-    nlo = lo;
-    //nhi = buffer1[out] << 8;
-    //nlo = buffer2[out];
-    flag = 1;
+  // Cross fade around circular buffer 'seam'.
+  if((o2 = (int)out) == (i2 = (int)in)) {
+    // Sample positions coincide.  Use cross-fade buffer data directly.
+    pos = nSamples + xf;
+    hi = (buffer2[pos] << 2) | (buffer1[pos] >> 6); // Expand 10-bit data
+    lo = (buffer1[pos] << 2) |  buffer2[pos];       // to 12 bits
+  } if((o2 < i2) && (o2 > (i2 - XFADE))) {
+    // Output sample is close to end of input samples.  Cross-fade to
+    // avoid click.  The shift operations here assume that XFADE is 16;
+    // will need adjustment if that changes.
+    w   = in - out;  // Weight of sample (1-n)
+    inv = XFADE - w; // Weight of xfade
+    pos = nSamples + ((inv + xf) % XFADE);
+    s   = ((buffer2[out] << 8) | buffer1[out]) * w +
+          ((buffer2[pos] << 8) | buffer1[pos]) * inv;
+    hi = s >> 10; // Shift 14 bit result
+    lo = s >> 2;  // down to 12 bits
+  } else if (o2 > (i2 + nSamples - XFADE)) {
+    // More cross-fade condition
+    w   = in + nSamples - out;
+    inv = XFADE - w;
+    pos = nSamples + ((inv + xf) % XFADE);
+    s   = ((buffer2[out] << 8) | buffer1[out]) * w +
+          ((buffer2[pos] << 8) | buffer1[pos]) * inv;
+    hi = s >> 10; // Shift 14 bit result
+    lo = s >> 2;  // down to 12 bits
+  } else {
+    // Input and output counters don't coincide -- just use sample directly.
+    hi = (buffer2[out] << 2) | (buffer1[out] >> 6); // Expand 10-bit data
+    lo = (buffer1[out] << 2) |  buffer2[out];       // to 12 bits
+  }
   
-    //dac.setVoltage((hi | lo), false);
-    //sei();
-    //nhi = hi;
-    //nlo = lo;
-    // Might be possible to tweak 'hi' and 'lo' at this point to achieve
-    // different voice modulations -- robot effect, etc.?
-    
-    //Serial.println(hi);
-    //Serial.println(lo);
-    if(++out >= nSamples) out = 0;
+
+  // Might be possible to tweak 'hi' and 'lo' at this point to achieve
+  // different voice modulations -- robot effect, etc.?
+
+  flag = 1;
+  //nhi = buffer2[in];
+  //nlo = buffer1[in];
+  nhi = hi;
+  nlo = lo;
+
+  if(++out >= nSamples) out = 0;
 }
-
