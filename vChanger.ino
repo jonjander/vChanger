@@ -13,7 +13,22 @@ Kan skriva till I2C direkt från interupt istället för med biblotektet?
 //https://www.arduino.cc/en/Reference/PortManipulation
 
 uint16_t mic = 0;
-uint16_t micFilter = 0;
+int NormMic = 0;
+int micFilter = 0;
+int oldmic = 0;
+
+int volMax = 0, volMin = 9999;
+
+bool Onstate = false;
+int Checkbtn = 0;
+
+int diff = 0;
+
+//mdif screeen
+int OldMdiff = 0;
+
+//Clear screen
+bool ScreenCleared = true;
 
 
 uint16_t amax,amin,bmax,bmin;
@@ -70,16 +85,16 @@ unsigned char jx;
 
 int voltSamples=0;
 
-unsigned char disp1[19][8]={
+unsigned char disp1[8][8]={
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 
-  0b00000000, 0b01000000, 0b00000000, 0b01000000, 0b01000000, 0b00000000, 0b00000000, 0b00000000, 
-  0b00000000, 0b01100000, 0b00000000, 0b01100000, 0b01100000, 0b01000000, 0b00000000, 0b00000000, 
-  0b01000000, 0b01110000, 0b01100000, 0b01111000, 0b01100000, 0b01100000, 0b01000000, 0b00000000,
-  0b01100000, 0b01111000, 0b01110000, 0b01111110, 0b01110000, 0b01111000, 0b01000000, 0b01110000,
-  0b01100000, 0b01111000, 0b01110000, 0b01110000, 0b01111100, 0b01110000, 0b01110000, 0b01110000,
-  0b01111000, 0b01110000, 0b01111100, 0b01111000, 0b01110000, 0b01111000, 0b01100000, 0b01111110,
-  0b01111100, 0b01111000, 0b01111110, 0b01110000, 0b01111100, 0b01111110, 0b01111100, 0b01110000,
-// Heart Pattern
+  0b00000000, 0b00000000, 0b00000000, 0b00000000, 0b00000000, 0b00000000, 0b01011000, 0b00000000, 
+  0b00000000, 0b00000000, 0b00000000, 0b00000000, 0b00000000, 0b01011000, 0b01011100, 0b00000000, 
+  0b00000000, 0b00000000, 0b00000000, 0b00010000, 0b01010000, 0b01111100, 0b11111110, 0b00000000,
+  0b00000000, 0b00010000, 0b00010000, 0b01010100, 0b01111101, 0b11111101, 0b11111111, 0b00000000,
+  0b00000000, 0b00000000, 0b00001000, 0b01001000, 0b01111111, 0b11111111, 0b11111111, 0b00000000,
+  0b00000000, 0b00000001, 0b00100001, 0b10110101, 0b11111101, 0b11111111, 0b11111111, 0b00000000,
+  0b00000000, 0b00100100, 0b01110101, 0b01110111, 0b11111111, 0b11111111, 0b11111111, 0b00000000
+//
  
 };
 
@@ -163,64 +178,112 @@ void setup(void) {
 }
 
 void loop(void) {
-    mic =(nhi << 8 | nlo); //Set register to mic
-    //uint16_t micORg =(buffer2[in] << 8 | buffer1[in]); //Set register to mic
+    if (Checkbtn > 4500) {
+      Onstate = digitalRead(12);
+      
+      Checkbtn = 0;
+    }
+    Checkbtn++;
     
-    if (flag == 1) {
-      if (digitalRead(12))
-      {
-        amax = 0;
-        amin = 4000;
-        bmax = 0;
-        bmin = 4000;
-      }
-      mic = map(mic, (544 - 10), (736 + 10) , 0, 4096 );
+    if (flag == 1) {  
+      mic =(nhi << 8 | nlo); //Set register to mic 
 
-      if (1 == 0 ) {
-        Serial.print(mic);
-        Serial.print(" ");
-        Serial.print(amax);
-        Serial.print(" ");
-        Serial.print(amin);
-        Serial.print(" ");
-        Serial.print(bmax);
-        Serial.print(" ");
-        Serial.println(bmin);
-        //Serial.print(" ");
-        //Serial.println(micORg);
+      if (Onstate) {
+        if (mic > volMax) {
+          volMax = mic;
+        }
+        if (mic < volMin) {
+          volMin = mic;
+        }
+      }
+        
+      NormMic = map(mic, volMin, volMax, 0, 1000 ); //400 , 700
+      //Find right volume
+
+      int micDiff = oldmic - NormMic;
+      if (micDiff < 43 && micDiff > 0) {
+        NormMic -= micDiff;
+      } else if (micDiff > -43 && micDiff < 0) {
+        NormMic += micDiff;
       }
 
-      if (digitalRead(12)) { // fixa så att den inte frågar så ofta. kolla bara ibland och använd en toggle
+      oldmic = NormMic; //Save old mic
+      
+      
+      if (Onstate) { // fixa så att den inte frågar så ofta. kolla bara ibland och använd en toggle
         Wire.beginTransmission(0x60);
         Wire.write(64);                     // cmd to update the DAC
-        Wire.write(mic >> 4);        // the 8 most significant bits...
-        Wire.write((mic & 15) << 4); // the 4 least significant bits...
+        Wire.write(NormMic >> 4);        // the 8 most significant bits...
+        Wire.write((NormMic & 15) << 4); // the 4 least significant bits...
         Wire.endTransmission();
         flag = 0;
       }
+
+    
+      if (Onstate && 1==2) {
+        //Serial.println(voltSamples);
+        //Serial.print(" ");
+        Serial.print(diff);
+        Serial.print(" ");
+        Serial.print(NormMic);
+        //Serial.print(" ");
+        //Serial.print(mic);
+        //Serial.print(" ");
+        //Serial.print(micMax);
+        //Serial.print(" ");
+        //Serial.println(micMin);
+        Serial.print(" ");
+        Serial.println(0);
+      }
     }
-    voltSamples++;
-    if (voltSamples < 1024) {
-      //Find Min max mic noice
-      if (mic > micMax) {
-        micMax = mic;
+
+    if (Onstate) {
+      if (ScreenCleared) {ScreenCleared = false;}
+      voltSamples++;
+      if (voltSamples < 2200) {
+         //Find Min max mic noice
+        if (NormMic > micMax) {
+          micMax = NormMic;
+        }
+        if (NormMic < micMin) {
+          micMin = NormMic;
+        }
+      } else {  
+        //Write to display every 1024c
+
+        //diff = (micMax - micMin);
+        //skip min
+        
+        int mdiff = map(micMax,600,1024,0,7); //600 is 0zero
+        if (mdiff > 7) {
+          mdiff = 7;
+        } else if (mdiff < 0) {
+          mdiff = 0;
+        }
+        
+        if (OldMdiff !=mdiff) { //if diff not change skip
+          for(ix=2;ix<8;ix++) { // Dont write first and last line always zero.
+            //we dont need to write zeros
+            Write_Max7219(ix,disp1[mdiff][ix-1]); //mdiff
+          }
+        }
+        OldMdiff = mdiff;
+        
+        voltSamples = 0;
+        micMax = 0;
+        micMin = 1025;
+        //maxmin reset was here
       }
-      if (mic < micMin) {
-        micMin = mic;
+    } else if (!ScreenCleared) {
+      for(ix=2;ix<8;ix++) {
+        Write_Max7219(ix,disp1[0][ix-1]); //mdiff
       }
-    } else {
-      //Write to display every 1024c
-      int diff = (micMax - micMin);
-      int mdiff = map(diff,1000,3000,0,7);
-      for(ix=1;ix<9;ix++) {
-        Write_Max7219(ix,disp1[mdiff][ix-1]);
-      }
-      voltSamples = 0;
-      micMax = 0;
-      micMin = 1025;
+      //volMax = 0;
+      //volMin = 9999;
+      ScreenCleared = true;
     }
-    //Serial.println((buffer2[in] << 8) | buffer1[in]);
-    //
+
+    
 }
 
 void startPitchShift() {
