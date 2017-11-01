@@ -197,7 +197,7 @@ void loop(void) {
         }
       }
         
-      NormMic = map(mic, volMin, volMax, 0, 1000 ); //400 , 700
+      NormMic = map(mic, volMin, volMax, 400, 1000 ); //400 , 700
       //Find right volume
 
       int micDiff = oldmic - NormMic;
@@ -208,7 +208,14 @@ void loop(void) {
       }
 
       oldmic = NormMic; //Save old mic
-      
+
+      //Serial.println(mic);
+      //Serial.print(" ");
+      //Serial.print(micMax);
+      //Serial.print(" ");
+      //Serial.print(micMin);
+      //Serial.print(" ");
+      //Serial.println(0);
       
       if (Onstate) { // fixa så att den inte frågar så ofta. kolla bara ibland och använd en toggle
         Wire.beginTransmission(0x60);
@@ -219,28 +226,13 @@ void loop(void) {
         flag = 0;
       }
 
-    
-      if (Onstate && 1==2) {
-        //Serial.println(voltSamples);
-        //Serial.print(" ");
-        Serial.print(diff);
-        Serial.print(" ");
-        Serial.print(NormMic);
-        //Serial.print(" ");
-        //Serial.print(mic);
-        //Serial.print(" ");
-        //Serial.print(micMax);
-        //Serial.print(" ");
-        //Serial.println(micMin);
-        Serial.print(" ");
-        Serial.println(0);
-      }
+      
     }
 
     if (Onstate) {
       if (ScreenCleared) {ScreenCleared = false;}
       voltSamples++;
-      if (voltSamples < 2200) {
+      if (voltSamples < 1200) {
          //Find Min max mic noice
         if (NormMic > micMax) {
           micMax = NormMic;
@@ -253,8 +245,9 @@ void loop(void) {
 
         //diff = (micMax - micMin);
         //skip min
-        
-        int mdiff = map(micMax,600,1024,0,7); //600 is 0zero
+       
+        int mdiff = map(micMax,800,990,0,7); //600 is 0zero
+         Serial.println(mdiff);
         if (mdiff > 7) {
           mdiff = 7;
         } else if (mdiff < 0) {
