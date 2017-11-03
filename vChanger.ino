@@ -201,7 +201,7 @@ void loop(void) {
       //Find right volume
 
       int micDiff = oldmic - NormMic;
-      if (micDiff < 43 && micDiff > 0) {
+      if (micDiff < 43 && micDiff > 0) { //43
         NormMic -= micDiff;
       } else if (micDiff > -43 && micDiff < 0) {
         NormMic += micDiff;
@@ -246,8 +246,8 @@ void loop(void) {
         //diff = (micMax - micMin);
         //skip min
        
-        int mdiff = map(micMax,800,990,0,7); //600 is 0zero
-         Serial.println(mdiff);
+        int mdiff = map(micMax,810,990,0,7); //600 is 0zero
+         //Serial.println(mdiff);
         if (mdiff > 7) {
           mdiff = 7;
         } else if (mdiff < 0) {
